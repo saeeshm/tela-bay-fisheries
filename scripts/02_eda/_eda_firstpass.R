@@ -50,11 +50,6 @@ qtheme <- function(size=12, font='serif'){
           panel.border = element_rect(colour = "black", fill=NA, size=0.5))
 }
 
-# A vector with dates of year changes
-yrange <- year(range(ldg$fecha))
-yseq <- yrange[1]:yrange[2]
-year_change <- ymd(paste0(yseq[-1], '-01-01'))
-
 # ==== Reading data ====
 
 # Master-timeseries dataset (specifying column types)
@@ -64,6 +59,11 @@ ldg <- read_csv(ts_path, col_types = paste0(
   'nnni', 'iccn', 'ccnn', 'nnnn',
   'nnnn','nn'
 ))
+
+# A vector with dates of year changes
+yrange <- year(range(ldg$fecha))
+yseq <- yrange[1]:yrange[2]
+year_change <- ymd(paste0(yseq[-1], '-01-01'))
 
 # ==== Basic descriptors ====
 
