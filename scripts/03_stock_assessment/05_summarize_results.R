@@ -9,6 +9,7 @@
 # ==== libraries ====
 library(readr)
 library(stringr)
+library(lubridate)
 library(dplyr)
 library(tidyr)
 library(purrr)
@@ -30,8 +31,11 @@ selcor_dir <- 'output/stock_assessment/ypr/annual_tables_selcor'
 # No-selectivity corrected YPR results
 noselcor_dir <- 'output/stock_assessment/ypr/annual_tables_noselcor'
 
+# Spict results ptah
+spict_path <- 'output/stock_assessment/spict/best_spict.rds'
+
 # Output directory
-out_dir <- 'output/stock_assessment/ypr'
+out_dir <- 'output/stock_assessment/pres_plots'
 
 # Custom ggplot theme
 mytheme <- function(size=12, font='serif'){
@@ -57,7 +61,10 @@ fpaths <- list.files(noselcor_dir, full.names = T)
 fnames <- list.files(noselcor_dir) |> str_extract('\\d+')
 nscor_paths <- setNames(fpaths, fnames)
 
-# Preliminary tidying
+# Spict results
+spict <- readRDS(spict_path)
+
+# ==== Preliminary tidying ====
 fdb <- fdb_og |> 
   # Keeping only data for Tela
   filter(region == 'Tela') |>
@@ -82,7 +89,42 @@ yds <- fdb |>
   group_split()
 names(yds) <- unique(fdb$year)
 
-# ==== Catch-classification based on Froese indicators ====
+# ==== Basic descriptives plot (time-trend) ====
+ts_plot <- fdb |> 
+  # Getting the isoweek for each year
+  mutate(isoweek = isoweek(fecha), .after='fecha') |> 
+  # Converting isoweek to a single date using the first date of each isoweek
+  mutate(fecha = as.Date(paste(year, isoweek, 1, sep = "-"), "%Y-%W-%w"),
+         .after='isoweek') |>
+  # Aggregating by week for visualizing the trends
+  # group_by(year, month, isoweek) |>
+  group_by(fecha) |>
+  # rowwise() |> 
+  summarize(
+    'Length (cm)'=mean(longitud, na.rm=T),
+    'Weight (grams)'=mean(peso, na.rm=T),
+  'Effort (hours)'=mean(horas_pesca, na.rm=T)
+  ) |>
+  # Removing outliers for hours fished
+  # filter(`Effort (hours)` < 15) |>
+  # Calculating CPUE
+  mutate(`CPUE (gram/hour)` = `Weight (grams)`/`Effort (hours)`) |> 
+  tidyr::pivot_longer(`Length (cm)`:`CPUE (gram/hour)`, names_to='var', values_to = 'val') |> 
+  mutate(var = factor(var, levels=c('Weight (grams)', 'Effort (hours)', 'CPUE (gram/hour)', 'Length (cm)'))) |> 
+  ggplot(aes(x=fecha, y=val)) +
+  geom_smooth(colour='grey', alpha=0.3, method='loess', span=0.5) +
+  geom_line(colour='black', alpha=0.4) +
+  geom_point(aes(colour=var), alpha=0.6, show.legend = F) +
+  scale_colour_manual(values=c('firebrick', 'orange', 'darkgreen', 'darkblue')) +
+  facet_wrap('var', scales='free', nrow=4) +
+  mytheme() +
+  labs(
+    x = NULL,
+    y=NULL,
+  )
+ts_plot
+
+# ==== Froese-indicators plots ====
 
 # Calculating standard reference points for index-based assessment (Froese and
 # Binohlan 2000, Froese 2004) - uses the full dataset
@@ -92,7 +134,7 @@ Linf_emp <- exp(0.044 + 0.9841*log(max(fdb$longitud)))
 Linf_emp
 sg$elefan_sa_result$par$Linf
 curr_linf <- sg$elefan_sa_result$par$Linf
-# curr_linf <- Linf_emp
+curr_linf <- Linf_emp
 # Calculating Length-at-first-maturity, length-at-optimum-yield and therefore
 # the length range of optimal catch, and length of megaspawners
 Lmat <- exp((0.8979 * log(curr_linf)) - 0.0782)
@@ -113,7 +155,31 @@ froese_indics <- imap_dfr(yds, \(cdb, cyear){
   )
 })
 
-# ==== Summarizing YPR results per year ====
+# Plot summarizing results from the Froese indicators ----------
+froese_plot <- froese_indics |> 
+  tidyr::pivot_longer(cols=2:4, names_to='indic', values_to='val') |> 
+  mutate(val=val*100) |> 
+  mutate(indic = case_when(
+    indic == 'perc_mature' ~ '% Mature',
+    indic == 'perc_optimal' ~ '% Optimal',
+    indic == 'perc_mspawn' ~ '% Megaspawner',
+  )) |> 
+  mutate(indic = factor(indic, levels=c('% Mature','% Optimal', '% Megaspawner'))) |> 
+  ggplot(aes(x = year, y = val, colour=indic)) +
+  geom_point() +
+  geom_line(aes(group=indic), alpha=1) +
+  scale_colour_manual(values=c('#885A89','#8AA8A1', '#FADF7F')) +
+  # scale_colour_brewer(palette='Set2')+
+  mytheme() +
+  ylim(0, 100) +
+  labs(
+    x = NULL, 
+    y='% of Catch',
+    colour = 'Indicator'
+  )
+froese_plot
+
+# ==== Summary plots for YPR-curves per year ====
 
 # Function to prepare the summary dataframes
 prep_summ_dfs <- function(pathlist){
@@ -210,13 +276,6 @@ yprplot <- function(full_df, ref_pts, cyear, var){
       x = NULL,
       y = ifelse(cyear %in% c('2016', '2020'), label, list(NULL))[[1]],
     )
-  # Removing axies ticks where unnecessary to make the final mosaic cleaner
-  # if((var == 'yield') | (cyear %in% 2016:2018)) {
-  #   p <- p + theme(axis.text.x = element_blank())
-  # }
-  # if(!(cyear %in% c(2016, 2020))){
-  #   p <- p + theme(axis.text.y = element_blank())
-  # }
   # Fixing y-axis limits
   if(var == 'yield'){
     p <- p + ylim(c(0, 26000))
@@ -251,64 +310,77 @@ plot_ypr_mosaic <- function(full_df, ref_pts){
 scor_mosaic <- plot_ypr_mosaic(scor$full, scor$ref)
 nscor_mosaic <- plot_ypr_mosaic(nscor$full, nscor$ref)
 
-# Distribution of reference points relative to current ----------
-plot_ref_dist <- function(refdf){
-  refdf |> 
-    group_by(year, type) |> 
-    summarize(
-      'mean_fm' = mean(FM_scaling),
-      'sd_fm' = sd(FM_scaling),
-      'n_fm' = n()
-    ) |> 
-    mutate(
-      sd_up = mean_fm + sd_fm,
-      sd_down = mean_fm - sd_fm,
-      se_up = mean_fm + (sd_fm/n_fm),
-      se_down = mean_fm - (sd_fm/n_fm)
-    ) |> 
-    ggplot(aes(x = year, y = mean_fm, colour=type)) +
-    geom_point(size=1) +
-    geom_line(aes(group=type)) +
-    geom_errorbar(aes(ymin = se_down, ymax=se_up), width=0.1) +
-    scale_colour_manual(values=c('firebrick', 'orange', 'darkgreen')) +
-    mytheme() +
+# Catch-curves for each year ----------
+
+# Function to extract catch-curve data for each year
+get_cc_tab <- function(respath){
+  # Reading catchcurve object
+  res <- readRDS(respath)
+  cc <- res$catchcurve
+  # Creating catchcurve dataframe
+  ccdat <- tibble(
+    'length' = cc$midLengths,
+    'lnC_dt' = cc$lnC_dt,
+    't_midL' = cc$t_midL,
+    'Z' = round(cc$Z, 2),
+    'Z_se' = round(cc$se, 1)
+  )
+  # adding a flag to indicate the regression interval
+  regint <- rep(F, nrow(ccdat))
+  regint[cc$reg_int[1]:cc$reg_int[2]] <- T
+  ccdat$inclReg = regint
+  # Returning
+  ccdat
+}
+
+# Function to plot the catch-curve data for a given year, taking as an input the
+# catch-curve table produced from the above function
+# Plotting
+plot_cc <- function(cctab){
+  # Getting reference values as vectors
+  ccInt <- cctab |> filter(inclReg)
+  maxX <- max(cctab$t_midL)
+  maxY <- max(cctab$lnC_dt, na.rm=T)
+  Z <- cctab$Z[1]
+  se <- cctab$Z_se[1]
+  # Plotting
+  ggplot() +
+    geom_point(data=cctab, aes(x = t_midL, y=lnC_dt),
+               size=2.5, shape=21) +
+    geom_smooth(data=ccInt, aes(x = t_midL, y=lnC_dt),
+                method='lm', se=F,
+                colour='darkorange') +
+    annotate('text', label=paste('Z =', Z, '+/-', se),
+             x=2.5, y=7, hjust=1, 
+             family='serif', size=3.5) +
+    geom_point(data=ccInt, aes(x = t_midL, y=lnC_dt),
+               size=2.5, shape=21,
+               fill='darkorange',
+    ) +
+    lims(x=c(0, 2.5), 
+         y=c(0.5, 7.5)) +
+    mytheme(12, 'serif') +
     labs(
-      x = NULL,
-      y = 'Fishing mortality (^year-1)',
-      colour = 'F-Level'
+      y = 'Ln(C) / dt',
+      x = 'Estimated age'
     )
 }
 
-# For each dataset, and then combined
-scor_refdist <- plot_ref_dist(scor$ref)
-nscor_refdist <- plot_ref_dist(nscor$ref)
-comb_refdist <- plot_ref_dist(bind_rows(nscor$ref, scor$ref))
 
-# Plot summarizing results from the Froese indicators ----------
-froese_plot <- froese_indics |> 
-  tidyr::pivot_longer(cols=2:4, names_to='indic', values_to='val') |> 
-  mutate(val=val*100) |> 
-  mutate(indic = case_when(
-    indic == 'perc_mature' ~ '% Mature',
-    indic == 'perc_optimal' ~ '% Optimal',
-    indic == 'perc_mspawn' ~ '% Megaspawner',
-  )) |> 
-  mutate(indic = factor(indic, levels=c('% Mature','% Optimal', '% Megaspawner'))) |> 
-  ggplot(aes(x = year, y = val, colour=indic)) +
-  geom_point() +
-  geom_line(aes(group=indic), alpha=1) +
-  scale_colour_manual(values=c('#885A89','#8AA8A1', '#FADF7F')) +
-  # scale_colour_brewer(palette='Set2')+
-  mytheme() +
-  ylim(0, 100) +
-  labs(
-    x = NULL, 
-    y='% of Catch',
-    colour = 'Indicator'
-  )
-froese_plot
+# Producing catch-curve mosaics for selectivity corrected and uncorrected
+# datasets
+ccMosaic <- function(pathlist){
+  ccdats <- map(pathlist, get_cc_tab)
+  ccplots <- imap(ccdats, \(cctab, cyear){
+    plot_cc(cctab) + labs(subtitle=cyear)
+  })
+  # Producing the mosaic
+  wrap_plots(ccplots, nrow=4, guides = 'collect') + plot_layout(axes='collect')
+}
+scor_cc <- ccMosaic(scor_paths)
+nscor_cc <- ccMosaic(nscor_paths)
 
-# Plot visualizing raw and corrected length frequencies for each year ----------
+# Raw and corrected length frequencies for each year ----------
 
 # Function to extract and format the plots for mosaicing
 getLfqPlots <- function(pathlist){
@@ -442,19 +514,104 @@ selCurves
 selFroese <- (selCurves/froese_plot)
 selFroese
 
+# ==== Comparative summary plots for F/FMSY and B/BMSY ====
+
+# YPR: Distribution of F-MSY and F-0.1 relative to current F ----------
+plot_ref_dist <- function(refdf){
+  refdf |> 
+    group_by(year, type) |> 
+    summarize(
+      'mean_fm' = mean(FM_scaling),
+      'sd_fm' = sd(FM_scaling),
+      'n_fm' = n()
+    ) |> 
+    mutate(
+      sd_up = mean_fm + sd_fm,
+      sd_down = mean_fm - sd_fm,
+      se_up = mean_fm + (sd_fm/n_fm),
+      se_down = mean_fm - (sd_fm/n_fm)
+    ) |> 
+    ggplot(aes(x = year, y = mean_fm, colour=type)) +
+    geom_point(size=1) +
+    geom_line(aes(group=type)) +
+    geom_errorbar(aes(ymin = se_down, ymax=se_up), width=0.1) +
+    scale_colour_manual(values=c('firebrick', 'orange', 'darkgreen')) +
+    mytheme() +
+    labs(
+      x = NULL,
+      y = 'Fishing mortality (^year-1)',
+      colour = 'F-Level'
+    )
+}
+
+# For each dataset, and then combined
+scor_refdist <- plot_ref_dist(scor$ref)
+nscor_refdist <- plot_ref_dist(nscor$ref)
+comb_refdist <- plot_ref_dist(bind_rows(nscor$ref, scor$ref))
+
+# YPR v/s SPICT comparison ----------
+
+# Calculating F/Fmsy for YPR
+ypr_ftab <- scor$ref |> 
+  filter(scenario=='vpa_sel_pauly') |> 
+  select(year, type, 'f' = FM_scaling) |> 
+  pivot_wider(names_from = 'type', values_from = 'f') |> 
+  setNames(c('year', 'f', 'fmsy', 'f01')) |> 
+  mutate(`YPR F/F-MSY` = f/fmsy,
+         `YPR F/F-0.1` = f/f01) |> 
+  mutate(time = as.numeric(year)) |> 
+  select(time, `YPR F/F-MSY`, `YPR F/F-0.1`) |> 
+  pivot_longer(2:3, names_to='type', values_to='est')
+
+# Plotting dataframe
+plotdf <- spict$ftab |>
+  mutate(time = as.numeric(time)) |> 
+  mutate(type = 'Spict F/F-MSY') |> 
+  filter(time < 2023.25) |> 
+  bind_rows(ypr_ftab)
+
+# Plotting
+fmsy_comp_plot <- ggplot() +
+  geom_line(data=plotdf, aes(x = time, y=est, colour=type)) +
+  geom_point(data= plotdf |> dplyr::filter(type != 'Spict F/F-MSY'),
+             aes(x = time, y=est, colour=type)) +
+  geom_ribbon(data= plotdf |> dplyr::filter(type == 'Spict F/F-MSY'),
+              aes(x = time, y=est, ymax=ul, ymin=ll), alpha=0.2) +
+  scale_color_manual(values=c('darkgreen', 'orange', 'firebrick')) +
+  # Sustainabile reference point
+  geom_hline(yintercept = 1, linetype='dashed') +
+  mytheme() +
+  labs(
+    x = NULL,
+    y = 'F/F-MSY',
+    colour = 'Source'
+  )
+fmsy_comp_plot
+
 # ==== Saving all plots ====
 
+# Descriptives time-series plot
+ggsave(filename=file.path(out_dir, 'ts_desc_plot.png'), plot = ts_plot,
+       width=12, height=8, unit='in')
 # YPR mosaics
 ggsave(filename=file.path(out_dir, 'ypr_mosaic_sel_cor.png'), plot = scor_mosaic,
        width=12, height=8, unit='in')
 ggsave(filename=file.path(out_dir, 'ypr_mosaic_not_cor.png'), plot = nscor_mosaic,
        width=12, height=8, unit='in')
+# Catch-curve regression mosaics
+ggsave(filename=file.path(out_dir, 'cc_mosaic_sel_cor.png'), plot = scor_cc,
+       width=10, height=8, unit='in')
+ggsave(filename=file.path(out_dir, 'cc_mosaic_not_cor.png'), plot = nscor_cc,
+       width=10, height=8, unit='in')
 # YPR reference point distributions
 ggsave(filename=file.path(out_dir, 'ypr_ref_pts_sel_cor.png'), plot = scor_refdist,
        width=8, height=6, unit='in')
 ggsave(filename=file.path(out_dir, 'ypr_ref_pts_not_cor.png'), plot = nscor_refdist,
        width=8, height=6, unit='in')
 ggsave(filename=file.path(out_dir, 'ypr_ref_pts_combined.png'), plot = comb_refdist,
+       width=8, height=6, unit='in')
+# YPR v/s SPiCT F/Fmsy
+ggsave(filename=file.path(out_dir, 'spict_ypr_fmsy_comp.png'), plot = fmsy_comp_plot,
        width=8, height=6, unit='in')
 # Froese indicator plot
 ggsave(filename=file.path(out_dir, 'froese_indicators.png'), plot = froese_plot,

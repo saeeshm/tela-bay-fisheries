@@ -18,7 +18,7 @@ out_dir <- 'data/species_name_cleaning/scientific-names-matched'
 # Helper function to quickly read a list of paths
 qread <- function(obj_names, paths, ...){
   walk2(obj_names, paths, \(x, value){
-    print(paste('Created vatiable:', x))
+    print(paste('Created variable:', x))
     assign(x, read_csv(value, ...), pos=globalenv())
   })
 }

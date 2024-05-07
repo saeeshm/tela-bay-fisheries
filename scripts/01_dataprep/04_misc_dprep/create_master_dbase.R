@@ -26,7 +26,7 @@ bi <- bi_og |>
 tela <- tela_og |> 
   mutate(region = 'Tela', .before='uid') |> 
   select(-id) |>
-  select(-matches('salida|regreso'))
+  select(-matches('salida|regreso|intp'))
 truj <- truj_og |> 
   mutate(region = 'Trujillo', .before='uid') |> 
   select(-id) |> 

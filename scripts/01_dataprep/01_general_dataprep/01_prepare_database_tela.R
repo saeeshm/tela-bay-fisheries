@@ -176,6 +176,7 @@ tela$hora_regreso |>   table(useNA = 'ifany')
 regresos <- tela |>
   # Selecting relevant columns
   select(id, fecha, hora_regreso) |>  
+  filter(id=='6797') |> 
   # Cleaning strings for easier parsing
   mutate(hora_regreso = stri_trans_general(hora_regreso, id = "Latin-ASCII")) |>   
   mutate(hora_regreso = tolower(hora_regreso)) |>   
@@ -226,7 +227,10 @@ min_horas_thresh <- 2
 # Calculating hours fished by joining these datasets
 tab_horas_pesca <- salidas |>   
   left_join(regresos, by='id') |>   
-  mutate(horas_pesca = difftime(regreso, salida, units='hours')) |> 
+  mutate(horas_pesca = (as.numeric(regreso-salida)/3600)) |> 
+  filter(is.na(horas_pesca)) |> 
+  View()
+  # mutate(horas_pesca = difftime(regreso, salida, units='hours')) |> 
   # Where the calculated result is less than a reasonable threshold (including
   # negative calculations) and there was no interpolation for either time, I
   # assume the salida and regreso are switched (based on manual review of the
@@ -242,16 +246,17 @@ tab_horas_pesca <- salidas |>
   # calculated hours to NA as these values are not reliable
   mutate(horas_pesca = if_else((horas_pesca < min_horas_thresh), NA_real_, horas_pesca)) |> 
   # Selecting only relevant columns for addition to the full table
-  select(id, 
-         'hora_salida_cln' = salida, 
-         'hora_regreso_cln' = regreso, 
-         'horas_pesca_calc' = horas_pesca, 
+  select(id,
+         'hora_salida_cln' = salida,
+         'hora_regreso_cln' = regreso,
+         'horas_pesca_calc' = horas_pesca,
          salida_intp, regreso_intp)
 
 # In-filling calculated hours fished to the full data (keeping any existing data
 # for fished hours if relevant)
 tela <- tela |> 
   left_join(tab_horas_pesca, by='id') |> 
+  mutate(horas_pesca_intp = ifelse(is.na(horas_pesca) & (salida_intp&regreso_intp), T, F)) |> 
   mutate(horas_pesca = ifelse(is.na(horas_pesca), horas_pesca_calc, horas_pesca)) |> 
   select(-horas_pesca_calc)
 

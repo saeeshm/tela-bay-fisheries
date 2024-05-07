@@ -29,19 +29,45 @@ cmn <- 'calale|lane'
 
 # Index of essential columns (useful for viewing subsets of tables)
 idx <- c('id', 'codigo', 'fecha', 'comunidad', 'zona_pesca', 'nombre_comun',
-         'nombre_cientifico', 'peso', 'longitud', 'horas_pesca', 
-         'horas_intp_dos', 'horas_intp_uno',
+         'nombre_cientifico', 'peso', 'longitud', 'horas_pesca', 'numero_pescadores',
+         'horas_pesca_intp','salida_intp', 'regreso_intp',
          'tipo_arte', 'luz_malla', 'longitud_total_arte')
   
 # ==== Reading data ====
 tela <- read_csv(tela_path)
 trujillo <- read_csv(trujillo_path)
 
+# ==== Examining overall sampling variability ====
+tela |> 
+  filter((str_detect(genus, gen) & str_detect(species, spc)) |
+           str_detect(nombre_comun_cln, cmn)) |>
+  mutate(year = year(fecha), month=month.abb[month(fecha)]) |> 
+  group_by(year, tipo_arte) |> 
+  summarize('n'=length(unique(codigo, na.rm=T))) |> 
+  tidyr::pivot_wider(names_from='tipo_arte', values_from='n')
+
+tela |> 
+  # filter(comunidad=='Miami') |> 
+  filter((str_detect(genus, gen) & str_detect(species, spc)) |
+           str_detect(nombre_comun_cln, cmn)) |>
+  mutate(year = year(fecha), month=month.abb[month(fecha)]) |> 
+  select(year, 'var' = tipo_arte, codigo) |> 
+  group_by(year, var) |> 
+  summarize('n'=length(unique(codigo, na.rm=T))) |> 
+  tidyr::pivot_wider(names_from='var', values_from='n')
+  # table()
+
+trujillo |> 
+  filter((str_detect(genus, gen) & str_detect(species, spc)) |
+           str_detect(nombre_comun_cln, cmn)) |> 
+  mutate(year = year(fecha), month=month.abb[month(fecha)]) |> 
+  group_by(year, month) |> 
+  summarize('n'=length(unique(codigo, na.rm=T))) |> 
+  tidyr::pivot_wider(names_from='month', values_from='n') |> 
+  relocate(all_of(c('year', month.abb)))
+
 # ==== Filtering only for the species of interest ====
 d1 <- tela |> 
-  # Is the hour fished fully interpolated? Returning an error if yes
-  mutate(horas_intp_dos = salida_intp & regreso_intp) |> 
-  mutate(horas_intp_uno = salida_intp | regreso_intp) |> 
   # Filtering where the scientific name or common name matches
   filter((str_detect(genus, gen) & str_detect(species, spc)) |
            str_detect(nombre_comun_cln, cmn)) |> 
@@ -73,80 +99,8 @@ fdb <- bind_rows(d1, d2) |>
   mutate(year = year(fecha)) |> 
   mutate(month = factor(month.abb[month(fecha)], levels=month.abb))
 
-# ==== Summarizing catches and effort per-week and per-day ===
-
-# The goal of this is to minimize the effect of sampling effort variability,
-# while balancing this against ensuring there is enough granularity and contrast
-# in the data. The problem stems from the fact that the sampling effort is
-# wildly inconsistent each year, leading to biased estimates of catch and effor
-# towards the years that just have more data. Averaging by week assigns a single
-# value to each week, reducing the variability per year while still ensuring
-# that the temporal unit is small enough to see seasonality patterns and detect
-# contrasts in catches by year. This however makes the assumption that all
-# samples in low-effort years are representative of the potential catch for that
-# week, which may not necessarily be the case
-
-# Visualizing sampling effort variability at the beginning - really pronounced
-# for both regions
-fdb |> 
-  mutate(month=factor(month, levels=month.abb)) |>
-  dplyr::select(year, month, region) |>
-  table()
-
-# Averaging catches, effort and lengths by day
-fdb_day <- fdb |> 
-  # Converting weight to kg
-  mutate(peso = peso/1000) |> 
-  # Getting the isoweek for each year
-  # mutate(isoweek = isoweek(fecha), .after='fecha') |> 
-  # Summarizing mean catch and mean effort by isoweek (helps account for the high
-  # level of sampling variability distorting the estimate of total catch per
-  # year)
-  group_by(region, year, month, fecha) |>
-  summarize(
-    peso = mean(peso, na.rm=T),
-    horas_pesca = mean(horas_pesca, na.rm=T),
-    longitud = mean(longitud, na.rm=T),
-    luz_malla = mean(luz_malla, na.rm=T),
-    n_samples = n()
-  ) |> 
-  ungroup()
-
-# Effort variability - reduced
-fdb_day |> 
-  mutate(month=factor(month, levels=month.abb)) |>
-  dplyr::select(year, month, region) |>
-  table()
-
-# Averaging catches, effort and lengths by isoweek
-fdb_iwk <- fdb |> 
-  # Converting weight to kg
-  mutate(peso = peso/1000) |> 
-  # Getting the isoweek for each year
-  mutate(isoweek = isoweek(fecha), .after='fecha') |>
-  # Summarizing mean catch and mean effort by isoweek (helps account for the high
-  # level of sampling variability distorting the estimate of total catch per
-  # year)
-  group_by(region, year, month, isoweek) |>
-  summarize(
-    peso = mean(peso, na.rm=T),
-    horas_pesca = mean(horas_pesca, na.rm=T),
-    longitud = mean(longitud, na.rm=T),
-    luz_malla = mean(luz_malla, na.rm=T),
-    n_samples = n()
-  ) |> 
-  ungroup()
-
-# Effort variability - reduced even more
-fdb_iwk |> 
-  mutate(month=factor(month, levels=month.abb)) |>
-  dplyr::select(year, month, region) |>
-  table()
-
 # ==== Writing to disk ====
 write_csv(fdb, file.path(out_dir, 'lane_snapper_total.csv'))
-write_csv(fdb_day, file.path(out_dir, 'lane_snapper_daily.csv'))
-write_csv(fdb_iwk, file.path(out_dir, 'lane_snapper_isoweek.csv'))
 
 # ==== Basic descriptives (to understand nature of the data) ====
 
@@ -163,23 +117,13 @@ fdb |>
   geom_col() +
   facet_wrap(facets='year', scales = 'fixed', nrow=4)
 
-# Viewing length distributions per year
+# Viewing length distributions
 fdb$longitud |> range(na.rm=T)
 hist(fdb$longitud, breaks=40)
-# VERY different length distibution
-hist(fdb_day$longitud, breaks=40)
-hist(fdb_iwk$longitud, breaks=40)
 
 # Split by year
 fdb |> 
   ggplot(aes(x = longitud)) +
   geom_histogram() +
   facet_wrap(facets='year', scales = 'fixed', nrow=4)
-fdb_day|> 
-  ggplot(aes(x = longitud)) +
-  geom_histogram() +
-  facet_wrap(facets='year', scales = 'fixed', nrow=4)
-fdb_iwk |> 
-  ggplot(aes(x = longitud)) +
-  geom_histogram() +
-  facet_wrap(facets='year', scales = 'fixed', nrow=4)
+
