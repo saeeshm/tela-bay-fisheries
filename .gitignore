@@ -1,6 +1,14 @@
 *.Rproj
+*.qgz
+*.xlsx
 .Rproj.user
 .Rhistory
 data/
 output/
 antonella-prvs-code/
+
+scripts/old_stock_assessment
+scripts/03_stakeholder_eda
+
+output/old_stock_assessment
+output/eda

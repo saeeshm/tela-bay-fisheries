@@ -229,7 +229,6 @@ tab_horas_pesca <- salidas |>
   left_join(regresos, by='id') |>   
   mutate(horas_pesca = (as.numeric(regreso-salida)/3600)) |> 
   filter(is.na(horas_pesca)) |> 
-  View()
   # mutate(horas_pesca = difftime(regreso, salida, units='hours')) |> 
   # Where the calculated result is less than a reasonable threshold (including
   # negative calculations) and there was no interpolation for either time, I

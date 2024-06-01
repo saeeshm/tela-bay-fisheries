@@ -1,9 +1,10 @@
 # Author: Saeesh Mangwani
 # Date: 2024-02-06
 
-# Description: Joining available matched taxonomic information to the databases,
-# and using that as the starting point for an authoritative codebook of species
-# names
+# Description: Joining available matched taxonomic information for common names
+# to the databases (based on help from Julio, Paolo, and Antonella to map common
+# names to scientific names in the region). Using this to also be the starting
+# point for an authoritative codebook of species names (to be continued later)
 
 # ==== libraries ====
 library(readr)
@@ -108,6 +109,26 @@ dbs <- map2(dbs, cmn_name_matches, \(dat, cmn_match_table){
     # Removing extra columns
     select(-cls,-ord, -fam, -gen, -spc)
 })
+
+# Remaking the scientific name columns if they are not consistent (only where
+# species and genus are present)
+dbs <- imap(dbs, \(x, y){
+  print(y)
+  # Rows where granular raxa info is available
+  ncComplete <- x |> 
+    filter(!is.na(species) & !is.na(genus))
+  ncNotComplete <- x |> 
+    filter(is.na(species) | is.na(genus))
+  # Where info is available, overwriting the raw nombre_cientifico with the
+  # constructed one (this accounts for spelling mistakes and a whole bunch of
+  # other easy to miss errors, because the assigned names are pulled directly
+  # from fishbase and assumed to be good)
+  ncComplete <- ncComplete |> 
+    mutate(nombre_cientifico = paste(genus, species))
+  # Joining back the missing rows and returning
+  bind_rows(ncComplete, ncNotComplete) |> 
+    arrange(fecha, codigo)
+}) 
 
 # Writing each table to disk, to get the final cleaned version of the databases
 iwalk(dbs, \(x, y){
