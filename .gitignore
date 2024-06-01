@@ -1,10 +1,11 @@
 *.Rproj
 *.qgz
 *.xlsx
+*.pptx
+*.DS_Store
 .Rproj.user
 .Rhistory
 data/
-output/
 antonella-prvs-code/
 
 scripts/old_stock_assessment
@@ -12,3 +13,6 @@ scripts/03_stakeholder_eda
 
 output/old_stock_assessment
 output/eda
+output/stock_analysis/ss_calale/ypr/tables/all_*.png
+output/stock_analysis/ss_calale/ypr/all_*.png
+output/stock_analysis/ss_calale/ypr/*_vpa.png
