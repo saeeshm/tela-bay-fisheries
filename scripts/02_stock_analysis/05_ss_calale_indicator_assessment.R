@@ -13,8 +13,8 @@ library(ggplot2)
 library(purrr)
 # library(TropFishR)
 library(anomalize)
-source('scripts/03_stock_analysis/utils/_general_utils.R')
-source('scripts/03_stock_analysis/utils/06_ss_indicator_utils.R')
+source('scripts/02_stock_analysis/utils/_general_utils.R')
+source('scripts/02_stock_analysis/utils/05_ss_indicator_utils.R')
 
 # ==== Paths and global variables ====
 
@@ -339,7 +339,7 @@ cpuePLPlot <- cpue_pl_tab |>
   theme(legend.position = 'top') +
   labs(
     x = 'Length',
-    y = 'CPUE (kg per day)',
+    y = 'CPUE (kg/day)',
     colour = "Period:",
     fill = 'Period:'
   )
